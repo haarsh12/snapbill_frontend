@@ -1,0 +1,69 @@
+name: snapbill_new
+description: "A new Flutter project for My Kirana with FastAPI Backend."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- CORE & UI ---
+  cupertino_icons: ^1.0.8
+  intl: ^0.19.0           # Date formatting
+  provider: ^6.1.2        # State Management
+  uuid: ^4.0.0            # ID Generation
+
+  # --- BACKEND & STORAGE ---
+  http: ^1.2.1            # For FastAPI connection
+  shared_preferences: ^2.5.4 # For saving Tokens locally
+
+  # --- HARDWARE & FEATURES ---
+  speech_to_text: ^7.0.0  # Kept at 7.0.0 to fix the Kotlin/Android error
+  flutter_tts: ^4.0.2     # Text-to-Speech
+  image_picker: ^1.1.1    # QR Code/Profile Upload
+  permission_handler: ^11.3.1 # FIXED: Downgraded from invalid 14.0.0
+  path_provider: ^2.1.3   # File system access
+
+  # --- PRINTING & PDF ---
+  blue_thermal_printer: ^1.2.3 
+  esc_pos_utils_plus: ^2.0.4   
+  pdf: ^3.11.3            
+  printing: ^5.14.2       
+  image: ^4.2.0           
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: "^0.13.1"
+
+# --- LAUNCHER ICON SETUP ---
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/mykiranaicon.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "assets/mykiranaicon.png"
+    background_color: "#E8F5E9"
+    theme_color: "#1B5E20"
+  windows:
+    generate: true
+    image_path: "assets/mykiranaicon.png"
+    icon_size: 48
+  macos:
+    generate: true
+    image_path: "assets/mykiranaicon.png"
+
+flutter:
+  uses-material-design: true
+
+  # --- ASSETS REGISTRATION ---
+  assets:
+    - assets/
+    - assets/geminigrocery.png
+    - assets/mykiranaicon.png
