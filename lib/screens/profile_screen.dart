@@ -40,6 +40,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _uploadedQrPath;
   final ImagePicker _picker = ImagePicker();
 
+  // Save loading state
+  bool _isSaving = false;
+
   @override
   void initState() {
     super.initState();
@@ -62,11 +65,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // --- LOGIC: UPDATE DETAILS & SYNC ---
   void _toggleEdit(String key) {
+    // Special handling for phone1 (READ-ONLY)
+    if (key == 'ph1') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "⚠️ Default phone number cannot be changed. It's your account identifier.",
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return; // Block editing
+    }
+
     setState(() {
       _isEditing[key] = !_isEditing[key]!;
 
-      // If we just finished editing (saved), update the global provider
+      // If we just finished editing (saved), trigger local update
       if (!_isEditing[key]!) {
+        // Update happens in memory immediately for UI responsiveness
         final provider = Provider.of<AuthProvider>(context, listen: false);
         final current = provider.shopDetails!;
 
@@ -74,13 +93,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (key == 'shop') current.shopName = _shopNameCtrl.text;
         if (key == 'owner') current.ownerName = _ownerNameCtrl.text;
         if (key == 'address') current.address = _addressCtrl.text;
-        if (key == 'ph1') current.phone1 = _phone1Ctrl.text;
         if (key == 'ph2') current.phone2 = _phone2Ctrl.text;
 
         // Force UI rebuild to reflect changes in Preview
         setState(() {});
       }
     });
+  }
+
+  // NEW: Save all changes to database
+  Future<void> _saveProfileToDatabase() async {
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final provider = Provider.of<AuthProvider>(context, listen: false);
+
+      // Call the update profile API
+      await provider.updateProfile(
+        shopName: _shopNameCtrl.text.trim(),
+        ownerName: _ownerNameCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+        phone2: _phone2Ctrl.text.trim(),
+      );
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✓ Profile updated successfully!"),
+            backgroundColor: AppColors.primaryGreen,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Close any open edit modes
+      setState(() {
+        _isEditing['shop'] = false;
+        _isEditing['owner'] = false;
+        _isEditing['address'] = false;
+        _isEditing['ph2'] = false;
+      });
+    } catch (e) {
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("❌ Failed to update profile: $e"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isSaving = false;
+      });
+    }
   }
 
   Future<void> _uploadQr() async {
@@ -188,69 +259,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fit: BoxFit.cover,
                       errorBuilder: (c, e, s) => const Center(
                           child: Icon(Icons.store,
-                              size: 80, color: Colors.grey))))),
+                              size: 100, color: AppColors.primaryGreen))))),
 
           Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 2. SHOP DETAILS BLOCK (New Requirement)
-                    const Text("Shop Details",
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 10),
-                    Card(
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(children: [
-                          _buildEditableField(
-                              "Shop Name", _shopNameCtrl, 'shop'),
-                          const Divider(),
-                          _buildEditableField(
-                              "Owner Name", _ownerNameCtrl, 'owner'),
-                          const Divider(),
-                          _buildEditableField(
-                              "Address", _addressCtrl, 'address'),
-                          const Divider(),
-                          _buildEditableField("Phone No. 1", _phone1Ctrl, 'ph1',
-                              isPhone: true),
-                          const Divider(),
-                          _buildEditableField("Phone No. 2", _phone2Ctrl, 'ph2',
-                              isPhone: true),
-                        ]),
-                      ),
+                    // 2. SHOP DETAILS SECTION (Editable)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("Shop Details",
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold)),
+                        // NEW: Save Button
+                        ElevatedButton.icon(
+                          onPressed: _isSaving ? null : _saveProfileToDatabase,
+                          icon: _isSaving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
+                                  ),
+                                )
+                              : const Icon(Icons.save, size: 18),
+                          label: Text(_isSaving ? "Saving..." : "Save Changes"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 15),
+
+                    Card(
+                        child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(children: [
+                              _buildEditableField(
+                                  "Shop Name", _shopNameCtrl, 'shop'),
+                              _buildEditableField(
+                                  "Owner Name", _ownerNameCtrl, 'owner'),
+                              _buildEditableField(
+                                  "Address", _addressCtrl, 'address'),
+                              _buildEditableField(
+                                  "Phone 1 (Primary)", _phone1Ctrl, 'ph1',
+                                  isPhone: true, isReadOnly: true),
+                              _buildEditableField(
+                                  "Phone 2 (Optional)", _phone2Ctrl, 'ph2',
+                                  isPhone: true),
+                            ]))),
                     const SizedBox(height: 30),
 
-                    // 3. APP LANGUAGE
+                    // 3. LANGUAGE SETTINGS
                     const Text("App Language",
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
-                    Row(children: [
-                      Expanded(
-                          child: _buildOptionButton(
-                              "English",
-                              'en',
-                              _appLanguage,
-                              (val) => setState(() => _appLanguage = val))),
-                      const SizedBox(width: 15),
-                      Expanded(
-                          child: _buildOptionButton("Hindi", 'hi', _appLanguage,
-                              (val) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text("Hindi Language Coming Soon!")));
-                      })),
-                    ]),
+                    Card(
+                        child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(children: [
+                              Row(children: [
+                                Expanded(
+                                    child: _buildOptionButton(
+                                        "English",
+                                        'en',
+                                        _appLanguage,
+                                        (val) => setState(
+                                            () => _appLanguage = val))),
+                                const SizedBox(width: 15),
+                                Expanded(
+                                    child: _buildOptionButton(
+                                        "हिंदी (Hindi)",
+                                        'hi',
+                                        _appLanguage,
+                                        (val) => setState(
+                                            () => _appLanguage = val))),
+                              ])
+                            ]))),
                     const SizedBox(height: 30),
 
                     // 4. BILL SETTINGS
-                    const Text("Bill Template Settings",
+                    const Text("Bill Settings",
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
@@ -260,10 +358,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text("Select Language & Format",
+                                  const Text("Select Template",
                                       style: TextStyle(
-                                          fontSize: 14, color: Colors.grey)),
-                                  const SizedBox(height: 15),
+                                          fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 10),
+
                                   Row(children: [
                                     Expanded(
                                         child: _buildOptionButton(
@@ -359,21 +458,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildEditableField(
       String label, TextEditingController controller, String key,
-      {bool isPhone = false}) {
+      {bool isPhone = false, bool isReadOnly = false}) {
     bool isEditing = _isEditing[key]!;
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          Row(
+            children: [
+              Text(label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              if (isReadOnly)
+                Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: const Text(
+                    "READ ONLY",
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           Row(children: [
             Expanded(
                 child: TextField(
                     controller: controller,
-                    enabled: isEditing,
+                    enabled: isEditing && !isReadOnly,
                     keyboardType:
                         isPhone ? TextInputType.phone : TextInputType.text,
                     style: TextStyle(
-                        color: isEditing ? Colors.black : Colors.grey[800],
+                        color: (isEditing && !isReadOnly)
+                            ? Colors.black
+                            : Colors.grey[800],
                         fontWeight: FontWeight.w600,
                         fontSize: 15),
                     decoration: InputDecoration(
@@ -386,15 +511,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             borderSide:
                                 BorderSide(color: AppColors.primaryGreen))))),
             IconButton(
-                onPressed: () => _toggleEdit(key),
+                onPressed: isReadOnly ? null : () => _toggleEdit(key),
                 icon: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                        color: Colors.grey[100], shape: BoxShape.circle),
-                    child: Icon(isEditing ? Icons.check : Icons.edit,
+                        color: isReadOnly ? Colors.grey[200] : Colors.grey[100],
+                        shape: BoxShape.circle),
+                    child: Icon(
+                        isReadOnly
+                            ? Icons.lock
+                            : (isEditing ? Icons.check : Icons.edit),
                         size: 18,
-                        color:
-                            isEditing ? AppColors.primaryGreen : Colors.grey))),
+                        color: isReadOnly
+                            ? Colors.grey
+                            : (isEditing
+                                ? AppColors.primaryGreen
+                                : Colors.grey)))),
           ]),
         ]));
   }

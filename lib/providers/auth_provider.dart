@@ -27,8 +27,10 @@ class AuthProvider with ChangeNotifier {
         ownerName: data['owner_name'] ?? "Owner",
         address: data['address'] ?? "India",
         phone1: data['phone_number'] ?? "",
-        phone2: "",
+        phone2: data['phone2'] ?? "", // Load phone2 from storage
       );
+
+      print("DEBUG: Auto-login loaded phone2: ${_shopDetails?.phone2}");
     }
 
     notifyListeners();
@@ -59,11 +61,13 @@ class AuthProvider with ChangeNotifier {
       _token = response['access_token'];
 
       // 3. Extract Data (Prioritize Backend Data)
-      // If response['shop_name'] is null, it means the Backend Schema is broken.
       String finalShopName = response['shop_name'] ?? shopName ?? "My Shop";
       String finalOwnerName = response['owner_name'] ?? ownerName ?? "Owner";
       String finalAddress = response['address'] ?? address ?? "India";
+      String finalPhone2 = response['phone2'] ?? ""; // Get phone2 from response
       int userId = response['user_id'] ?? 0;
+
+      print("DEBUG: Received phone2 from backend: $finalPhone2");
 
       // 4. Save to Storage
       final prefs = await SharedPreferences.getInstance();
@@ -75,6 +79,7 @@ class AuthProvider with ChangeNotifier {
         'owner_name': finalOwnerName,
         'address': finalAddress,
         'phone_number': phone,
+        'phone2': finalPhone2, // Save phone2 to storage
       };
       await prefs.setString('user_data', jsonEncode(userData));
 
@@ -84,7 +89,7 @@ class AuthProvider with ChangeNotifier {
         ownerName: finalOwnerName,
         address: finalAddress,
         phone1: phone,
-        phone2: "",
+        phone2: finalPhone2, // Set phone2 in state
       );
 
       notifyListeners();
@@ -100,6 +105,77 @@ class AuthProvider with ChangeNotifier {
       await _apiClient
           .post('/auth/send-otp', {"phone_number": phone, "is_login": isLogin});
     } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Update Profile Method
+  Future<bool> updateProfile({
+    required String shopName,
+    required String ownerName,
+    required String address,
+    String? phone2,
+  }) async {
+    try {
+      print(
+          "Updating profile: Shop=$shopName, Owner=$ownerName, Address=$address, Phone2=$phone2");
+
+      // 1. Send Update Request to Backend
+      final response = await _apiClient.put('/auth/update-profile', {
+        "shop_name": shopName,
+        "owner_name": ownerName,
+        "address": address,
+        if (phone2 != null && phone2.isNotEmpty) "phone2": phone2,
+      });
+
+      print("UPDATE RESPONSE: $response");
+
+      // 2. Extract Updated Data
+      String updatedShopName = response['shop_name'] ?? shopName;
+      String updatedOwnerName = response['owner_name'] ?? ownerName;
+      String updatedAddress = response['address'] ?? address;
+      String updatedPhone2 =
+          response['phone2'] ?? phone2 ?? ""; // Get phone2 from response
+
+      // Keep phone1 unchanged (it's read-only)
+      String currentPhone1 = _shopDetails?.phone1 ?? "";
+
+      print("DEBUG: Updated phone2 from backend: $updatedPhone2");
+
+      // 3. Save to Local Storage
+      final prefs = await SharedPreferences.getInstance();
+
+      // Get existing user data to preserve user_id
+      String? existingData = prefs.getString('user_data');
+      int userId = 0;
+      if (existingData != null) {
+        final data = jsonDecode(existingData);
+        userId = data['user_id'] ?? 0;
+      }
+
+      final userData = {
+        'user_id': userId,
+        'shop_name': updatedShopName,
+        'owner_name': updatedOwnerName,
+        'address': updatedAddress,
+        'phone_number': currentPhone1,
+        'phone2': updatedPhone2, // Save updated phone2
+      };
+      await prefs.setString('user_data', jsonEncode(userData));
+
+      // 4. Update State
+      _shopDetails = ShopDetails(
+        shopName: updatedShopName,
+        ownerName: updatedOwnerName,
+        address: updatedAddress,
+        phone1: currentPhone1,
+        phone2: updatedPhone2, // Update phone2 in state
+      );
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print("UPDATE PROFILE ERROR: $e");
       rethrow;
     }
   }

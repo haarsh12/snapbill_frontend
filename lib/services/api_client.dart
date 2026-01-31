@@ -51,6 +51,28 @@ class ApiClient {
     }
   }
 
+  // NEW: PUT method for profile updates
+  Future<dynamic> put(String endpoint, Map<String, dynamic> data) async {
+    final url = Uri.parse('$baseUrl$endpoint');
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('user_token');
+
+    try {
+      final response = await http.put(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          if (token != null) "Authorization": "Bearer $token",
+        },
+        body: jsonEncode(data),
+      );
+
+      return _handleResponse(response);
+    } catch (e) {
+      throw Exception("Connection Error: $e");
+    }
+  }
+
   // Helper to handle success/errors
   dynamic _handleResponse(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
