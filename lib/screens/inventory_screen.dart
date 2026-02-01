@@ -234,8 +234,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     category: selectedCategory,
                   );
 
+                  // Save the item
                   await Provider.of<InventoryProvider>(context, listen: false)
                       .addItem(newItem);
+
+                  // CRITICAL: Force refresh from backend to ensure UI shows latest data
+                  await Provider.of<InventoryProvider>(context, listen: false)
+                      .fetchItems();
+
                   if (mounted) {
                     Navigator.pop(context);
                     _showNotification("${names[0]} saved");

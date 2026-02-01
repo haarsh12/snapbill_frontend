@@ -6,7 +6,7 @@ class ApiClient {
   // ⚠️ IMPORTANT: USE CORRECT IP
   // Emulator: "http://10.0.2.2:8000"
   // Real Phone: "http://192.168.1.X:8000" (Check your PC's IP)
-  static const String baseUrl = "http://192.168.247.207:8000";
+  static const String baseUrl = "http://10.254.135.207:8000";
 
   Future<dynamic> post(String endpoint, Map<String, dynamic> data) async {
     final url = Uri.parse('$baseUrl$endpoint');
@@ -51,7 +51,7 @@ class ApiClient {
     }
   }
 
-  // NEW: PUT method for profile updates
+  // PUT method for profile and item updates
   Future<dynamic> put(String endpoint, Map<String, dynamic> data) async {
     final url = Uri.parse('$baseUrl$endpoint');
     final prefs = await SharedPreferences.getInstance();
@@ -73,9 +73,34 @@ class ApiClient {
     }
   }
 
+  // NEW: DELETE method for removing items
+  Future<dynamic> delete(String endpoint) async {
+    final url = Uri.parse('$baseUrl$endpoint');
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('user_token');
+
+    try {
+      final response = await http.delete(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          if (token != null) "Authorization": "Bearer $token",
+        },
+      );
+
+      return _handleResponse(response);
+    } catch (e) {
+      throw Exception("Connection Error: $e");
+    }
+  }
+
   // Helper to handle success/errors
   dynamic _handleResponse(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
+      // Handle empty responses (DELETE operations often return no body)
+      if (response.body.isEmpty) {
+        return {"message": "Success"};
+      }
       return jsonDecode(response.body);
     } else {
       throw Exception("Server Error ${response.statusCode}: ${response.body}");
