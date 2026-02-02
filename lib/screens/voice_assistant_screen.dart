@@ -143,6 +143,20 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   void _finalizeBill() {
     if (_currentBill.isEmpty) return;
 
+    // --- NEW: STRICT PRINTER CHECK ---
+    if (!widget.isPrinterConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("⚠️ Connect Printer First!"),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      // Open printer dialog automatically
+      widget.togglePrinter();
+      return;
+    }
+
     // Create the Bill Data
     final billData = {
       'id':
@@ -397,8 +411,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               ElevatedButton.icon(
-                                  onPressed:
-                                      _finalizeBill, // Call the Real Function
+                                  onPressed: _finalizeBill, // Updated Call
                                   icon: const Icon(Icons.print,
                                       color: Colors.white, size: 20),
                                   label: const Text("PRINT",

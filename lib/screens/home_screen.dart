@@ -2,17 +2,17 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
-import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../core/theme.dart';
-import '../core/master_list.dart'; // Ensure this file exists!
+import '../core/master_list.dart';
 import '../models/shop_details.dart';
 import '../models/item.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/printer_service.dart'; // Import the new service
 
 // Screens
 import 'voice_assistant_screen.dart';
@@ -34,11 +34,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // --- STATE 1: DATA ---
   final List<Map<String, dynamic>> _pastBills = [];
-
-  // Initialize Frequent Items from Master List
   final List<Item> _frequentItems = List.from(masterFrequentList);
 
   // --- STATE 2: PRINTER ---
+  // Using the new Service
+  final PrinterService _printerService = PrinterService();
+
+  // Keep local state for UI updates
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
   List<BluetoothDevice> _devices = [];
   BluetoothDevice? _connectedDevice;
@@ -47,10 +49,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initPrinter();
+    _initPrinterListener();
   }
 
-  void _initPrinter() {
+  void _initPrinterListener() {
     bluetooth.onStateChanged().listen((state) {
       switch (state) {
         case BlueThermalPrinter.CONNECTED:
@@ -90,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // --- PRINTER LOGIC ---
+  // --- PRINTER CONNECTION UI ---
   void _togglePrinter() async {
     if (_isPrinterConnected) {
       _showDisconnectDialog();
@@ -199,83 +201,49 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- BILLING LOGIC ---
+  // --- CORE BILLING LOGIC (Modified) ---
   void _printOrSaveBill(Map<String, dynamic> billData) async {
-    setState(() {
-      _pastBills.insert(0, billData);
-    });
-
+    // 1. Check Printer Connection FIRST
     if (_isPrinterConnected) {
-      await _printThermal(billData);
-    } else {
-      await _printPdf(billData);
-    }
-  }
+      // Get Shop Details
+      final shopDetails =
+          Provider.of<AuthProvider>(context, listen: false).shopDetails ??
+              ShopDetails(
+                  shopName: "My Shop",
+                  ownerName: "",
+                  address: "",
+                  phone1: "",
+                  phone2: "");
 
-  Future<void> _printThermal(Map<String, dynamic> billData) async {
-    if (!_isPrinterConnected) return;
+      // Use the new Service
+      String result = await _printerService.printBill(billData, shopDetails);
 
-    try {
-      final profile = await CapabilityProfile.load();
-      final generator = Generator(PaperSize.mm58, profile);
-      List<int> bytes = [];
+      if (result == "Success") {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("✅ Print Successful! Bill Saved.")));
 
-      // Header
-      bytes += generator.text(billData['shopName'] ?? "Shop",
-          styles: const PosStyles(
-              align: PosAlign.center,
-              bold: true,
-              height: PosTextSize.size2,
-              width: PosTextSize.size2));
-      bytes += generator.text("Ph: ${billData['shopPhone']}",
-          styles: const PosStyles(align: PosAlign.center));
-      bytes += generator.hr();
-
-      // Items
-      bytes += generator.row([
-        PosColumn(text: 'Item', width: 6, styles: const PosStyles(bold: true)),
-        PosColumn(
-            text: 'Qty',
-            width: 2,
-            styles: const PosStyles(bold: true, align: PosAlign.center)),
-        PosColumn(
-            text: 'Amt',
-            width: 4,
-            styles: const PosStyles(bold: true, align: PosAlign.right)),
-      ]);
-
-      List<dynamic> items = billData['items'];
-      for (var item in items) {
-        bytes += generator.row([
-          PosColumn(text: item['en'] ?? item['name'], width: 6),
-          PosColumn(
-              text: item['qty'].toString(),
-              width: 2,
-              styles: const PosStyles(align: PosAlign.center)),
-          PosColumn(
-              text: item['total'].toInt().toString(),
-              width: 4,
-              styles: const PosStyles(align: PosAlign.right)),
-        ]);
+        // 2. Save to History ONLY after print logic (or as per your flow)
+        setState(() {
+          _pastBills.insert(0, billData);
+        });
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("❌ Print Failed: $result")));
       }
+    } else {
+      // Logic for when printer is disconnected but user wants to save?
+      // The requirement says: "if not connected then give error message connect printer first"
+      // But if we are in this function, it means the check passed in the child screen
+      // OR we are falling back to PDF.
 
-      bytes += generator.hr();
-      bytes += generator.text("TOTAL: Rs ${billData['total'].toInt()}",
-          styles: const PosStyles(
-              align: PosAlign.center,
-              bold: true,
-              height: PosTextSize.size2,
-              width: PosTextSize.size2));
-      bytes += generator.feed(1);
-      bytes += generator.text("Thank You!",
-          styles: const PosStyles(align: PosAlign.center));
-      bytes += generator.feed(2);
-      bytes += generator.cut();
+      // If you strictly want to block saving:
+      // return;
 
-      await bluetooth.writeBytes(Uint8List.fromList(bytes));
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Print Failed. Try reconnecting.")));
+      // For now, I will allow saving as PDF fallback if connection drops suddenly
+      await _printPdf(billData);
+      setState(() {
+        _pastBills.insert(0, billData);
+      });
     }
   }
 
@@ -332,12 +300,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: PageView(
         controller: _pageController,
-        // ENABLE SWIPING
         onPageChanged: _onPageChanged,
         children: [
           // 1. VOICE
-          // FIXED: Removed 'inventory' parameter.
-          // Ensure your VoiceAssistantScreen uses Provider.of<InventoryProvider>(context).items internally if needed.
           VoiceAssistantScreen(
             shopDetails: _shopDetails,
             onBillFinalized: _printOrSaveBill,
