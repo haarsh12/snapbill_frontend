@@ -14,21 +14,19 @@ class AuthSelectionScreen extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Spacer(flex: 2),
-              Container(
-                padding: const EdgeInsets.all(25),
-                decoration: const BoxDecoration(
-                  color: AppColors.lightGreenBg,
-                  shape: BoxShape.circle,
+              const SizedBox(height: 40),
+              // Larger shopping illustration image
+              Expanded(
+                flex: 3,
+                child: Image.asset(
+                  'assets/images/undraw_shopping_a55o.png',
+                  fit: BoxFit.contain,
                 ),
-                child: const Icon(Icons.store_rounded,
-                    size: 100, color: AppColors.primaryGreen),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 20),
               const Text(
-                "Welcome to My Kirana",
+                "Welcome to Snapbill",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 28,
@@ -44,7 +42,7 @@ class AuthSelectionScreen extends StatelessWidget {
                     color: AppColors.textGrey,
                     fontWeight: FontWeight.w500),
               ),
-              const Spacer(flex: 2),
+              const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(

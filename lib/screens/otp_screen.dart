@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/theme.dart';
 import '../providers/auth_provider.dart';
@@ -27,7 +28,16 @@ class OtpScreen extends StatefulWidget {
 }
 
 class _OtpScreenState extends State<OtpScreen> {
-  final _otpController = TextEditingController();
+  // 6 separate controllers for each OTP digit
+  final List<TextEditingController> _otpControllers = List.generate(
+    6,
+    (index) => TextEditingController(),
+  );
+  final List<FocusNode> _focusNodes = List.generate(
+    6,
+    (index) => FocusNode(),
+  );
+
   Timer? _timer;
   int _secondsRemaining = 45;
   bool _isLoading = false;
@@ -36,6 +46,10 @@ class _OtpScreenState extends State<OtpScreen> {
   void initState() {
     super.initState();
     _startTimer();
+    // Auto-focus first box
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNodes[0].requestFocus();
+    });
   }
 
   void _startTimer() {
@@ -63,8 +77,15 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 
   void _verifyAndLogin() async {
-    String otp = _otpController.text.trim();
-    if (otp.length != 6) return;
+    // Combine all 6 digits
+    String otp = _otpControllers.map((controller) => controller.text).join();
+
+    if (otp.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter complete OTP")),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -96,7 +117,67 @@ class _OtpScreenState extends State<OtpScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    for (var controller in _otpControllers) {
+      controller.dispose();
+    }
+    for (var node in _focusNodes) {
+      node.dispose();
+    }
     super.dispose();
+  }
+
+  Widget _buildOtpBox(int index) {
+    return Container(
+      width: 50,
+      height: 60,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _focusNodes[index].hasFocus
+              ? AppColors.primaryGreen
+              : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: TextField(
+        controller: _otpControllers[index],
+        focusNode: _focusNodes[index],
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.number,
+        maxLength: 1,
+        style: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: Colors.black,
+        ),
+        decoration: const InputDecoration(
+          counterText: "",
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.zero,
+        ),
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+        ],
+        onChanged: (value) {
+          if (value.isNotEmpty && index < 5) {
+            // Move to next field
+            _focusNodes[index + 1].requestFocus();
+          } else if (value.isEmpty && index > 0) {
+            // Move to previous field on backspace
+            _focusNodes[index - 1].requestFocus();
+          }
+
+          // Auto-submit when all 6 digits are entered
+          if (index == 5 && value.isNotEmpty) {
+            String fullOtp = _otpControllers.map((c) => c.text).join();
+            if (fullOtp.length == 6) {
+              _verifyAndLogin();
+            }
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -112,72 +193,85 @@ class _OtpScreenState extends State<OtpScreen> {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
         child: Column(
           children: [
-            const Text("Welcome Back",
-                style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textBlack)),
-            const SizedBox(height: 10),
-            const Text("Login to access dashboard",
-                style: TextStyle(fontSize: 16, color: Colors.grey)),
-            const SizedBox(height: 50),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                  color: AppColors.lightGreenBg, shape: BoxShape.circle),
-              child: const Icon(Icons.sms_rounded,
-                  color: AppColors.primaryGreen, size: 30),
-            ),
             const SizedBox(height: 20),
-            Text("OTP Sent to ${widget.phoneNumber}",
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 30),
-            TextField(
-              controller: _otpController,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              maxLength: 6,
+            // Top illustration image
+            Image.asset(
+              'assets/images/undraw_two-factor-authentication_ofho__1_.png',
+              width: double.infinity,
+              height: 220,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(height: 40),
+            Text(
+              "OTP Sent to ${widget.phoneNumber}",
               style: const TextStyle(
-                  fontSize: 24, letterSpacing: 10, fontWeight: FontWeight.bold),
-              decoration: const InputDecoration(
-                hintText: "000000",
-                counterText: "",
-                fillColor: Color(0xFFF5F5F5),
-                filled: true,
-                border: OutlineInputBorder(
-                    borderSide: BorderSide.none,
-                    borderRadius: BorderRadius.all(Radius.circular(12))),
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: AppColors.textBlack,
               ),
             ),
             const SizedBox(height: 30),
+            // 6 separate OTP boxes
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(
+                6,
+                (index) => _buildOtpBox(index),
+              ),
+            ),
+            const SizedBox(height: 40),
             SizedBox(
               width: double.infinity,
+              height: 54,
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _verifyAndLogin,
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryGreen),
+                  backgroundColor: AppColors.primaryGreen,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("Verify"),
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Text(
+                        "Verify",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 20),
             if (_secondsRemaining > 0)
               Text(
-                  "Resend OTP in 00:${_secondsRemaining.toString().padLeft(2, '0')}",
-                  style: const TextStyle(color: Colors.grey))
+                "Resend OTP in 00:${_secondsRemaining.toString().padLeft(2, '0')}",
+                style: const TextStyle(color: Colors.grey, fontSize: 14),
+              )
             else
               TextButton(
                 onPressed: _resendOtp,
-                child: const Text("Resend OTP",
-                    style: TextStyle(
-                        color: AppColors.primaryGreen,
-                        fontWeight: FontWeight.bold)),
+                child: const Text(
+                  "Resend OTP",
+                  style: TextStyle(
+                    color: AppColors.primaryGreen,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
               ),
+            const SizedBox(height: 20),
           ],
         ),
       ),

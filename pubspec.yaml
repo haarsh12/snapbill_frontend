@@ -76,3 +76,8 @@ flutter:
     - assets/
     - assets/geminigrocery.png
     - assets/mykiranaicon.png
+    # NEW: Images for authentication screens
+    - assets/images/
+    - assets/images/undraw_shopping_a55o.png
+    - assets/images/undraw_details_sgb2.png
+    - assets/images/undraw_two-factor-authentication_ofho__1_.png

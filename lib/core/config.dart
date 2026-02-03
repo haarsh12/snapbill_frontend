@@ -6,7 +6,7 @@ class ApiConfig {
   static const String _emulatorUrl = "http://10.0.2.2:8000";
 
   // 2. REAL PHYSICAL DEVICE (Your Correct IP)
-  static const String _realDeviceUrl = "http://10.254.135.207:8000";
+  static const String _realDeviceUrl = "http://192.168.205.207:8000";
 
   static String get baseUrl {
     if (kReleaseMode) {
