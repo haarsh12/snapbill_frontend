@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -51,12 +52,17 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   void dispose() {
     _pulseController.dispose();
     _silenceTimer?.cancel();
+    _flutterTts.stop();
     super.dispose();
   }
 
+  // --- RESTORED: Exact TTS Settings from your previous version ---
   void _initTts() async {
     await _flutterTts.setLanguage("hi-IN");
     await _flutterTts.setPitch(1.0);
+    await _flutterTts.setSpeechRate(0.5); // Slower rate for clarity
+    await _flutterTts.awaitSpeakCompletion(
+        true); // CRITICAL: Ensures full sentence is spoken
   }
 
   void _setupAnimation() {
@@ -86,7 +92,10 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
         onError: (val) => debugPrint('STT Error: $val'),
         onStatus: (status) {
           if (status == 'done' || status == 'notListening') {
-            if (_isListening) _startListening();
+            // Only restart if we are supposed to be listening and AI is NOT speaking
+            if (_isListening) {
+              _startListening();
+            }
           }
         });
 
@@ -97,6 +106,8 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
           _silenceTimer?.cancel();
           _silenceTimer = Timer(const Duration(seconds: 2), () {
             if (_currentSpeechChunk.trim().isNotEmpty) {
+              // Stop listening immediately to prevent interruption
+              _speech.stop();
               _processAiRequest(_currentSpeechChunk);
               setState(() => _currentSpeechChunk = "");
             }
@@ -119,14 +130,20 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   Future<void> _processAiRequest(String text) async {
     try {
       setState(() => _aiResponseText = "Processing...");
+
+      // 1. Call API
       final data = await _apiClient.post('/voice/process', {"text": text});
 
+      // 2. Handle Text Response (Voice)
       String? msg = data['msg'];
-      if (msg != null) {
+      if (msg != null && msg.isNotEmpty) {
         setState(() => _aiResponseText = msg);
-        _flutterTts.speak(msg);
+
+        // CRITICAL FIX: await ensures the UI doesn't refresh/interrupt while speaking
+        await _flutterTts.speak(msg);
       }
 
+      // 3. Update Bill (Only AFTER voice finishes)
       if (data['type'] == 'BILL') {
         List<dynamic> newItems = data['items'] ?? [];
         setState(() {
@@ -135,7 +152,12 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
           }
         });
       }
+
+      // 4. Resume Listening (Optional - makes it conversational)
+      // Uncomment the line below if you want it to auto-listen after speaking
+      // _toggleListening();
     } catch (e) {
+      debugPrint("Error: $e");
       setState(() => _aiResponseText = "Server Error");
     }
   }
@@ -143,8 +165,8 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   void _finalizeBill() {
     if (_currentBill.isEmpty) return;
 
-    // --- NEW: STRICT PRINTER CHECK ---
     if (!widget.isPrinterConnected) {
+      _flutterTts.speak("Printer connected nahi hai"); // Speak warning
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("⚠️ Connect Printer First!"),
@@ -152,12 +174,13 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
           duration: Duration(seconds: 2),
         ),
       );
-      // Open printer dialog automatically
       widget.togglePrinter();
       return;
     }
 
-    // Create the Bill Data
+    // Speak confirmation
+    _flutterTts.speak("Bill print ho raha hai");
+
     final billData = {
       'id':
           'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
@@ -172,10 +195,8 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
       'items': _currentBill,
     };
 
-    // Send to Home Screen to Print/Save
     widget.onBillFinalized(billData);
 
-    // Clear Local
     setState(() {
       _currentBill.clear();
       _aiResponseText = "Bill Printed!";
@@ -188,7 +209,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
       body: SafeArea(
         child: Column(
           children: [
-            // 1. Header (Updated with Printer Icon)
+            // 1. Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
@@ -411,7 +432,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               ElevatedButton.icon(
-                                  onPressed: _finalizeBill, // Updated Call
+                                  onPressed: _finalizeBill,
                                   icon: const Icon(Icons.print,
                                       color: Colors.white, size: 20),
                                   label: const Text("PRINT",
