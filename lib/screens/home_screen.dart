@@ -12,6 +12,7 @@ import '../models/shop_details.dart';
 import '../models/item.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/bill_provider.dart';
 import '../services/printer_service.dart'; // Import the new service
 
 // Screens
@@ -203,6 +204,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // --- CORE BILLING LOGIC (Modified) ---
   void _printOrSaveBill(Map<String, dynamic> billData) async {
+    debugPrint("🏠 HOME SCREEN: Received bill data");
+    debugPrint("🏠 Items in billData: ${billData['items']}");
+    debugPrint("🏠 Items count: ${(billData['items'] as List?)?.length ?? 0}");
+    
     // 1. Check Printer Connection FIRST
     if (_isPrinterConnected) {
       // Get Shop Details
@@ -215,8 +220,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   phone1: "",
                   phone2: "");
 
-      // Use the new Service
-      String result = await _printerService.printBill(billData, shopDetails);
+      // Get QR Code Path from BillProvider
+      final billProvider = Provider.of<BillProvider>(context, listen: false);
+      final qrCodePath = billProvider.qrCodePath;
+
+      debugPrint("🏠 Calling printer service...");
+
+      // Use the new Service with QR code
+      String result = await _printerService.printBill(billData, shopDetails, qrCodePath);
 
       if (result == "Success") {
         ScaffoldMessenger.of(context).showSnackBar(

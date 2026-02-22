@@ -1,4 +1,4 @@
-MY KIRANA - FRONTEND ARCHITECTURE DOCUMENTATION
+Snapbill - FRONTEND ARCHITECTURE DOCUMENTATION
 SECTION 1 — Project Overview
 1.1 Purpose
 "My Kirana" is a mobile Point of Sale (POS) and inventory management application designed for small Indian retail shops (Kirana stores). It streamlines billing through multiple interfaces (Voice, Manual, Frequent) and manages inventory with support for localization (Hindi/English).

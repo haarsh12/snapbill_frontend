@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 // Import Providers
 import 'providers/auth_provider.dart';
 import 'providers/inventory_provider.dart';
+import 'providers/bill_provider.dart';
 
 // Import Screens
 import 'screens/splash_screen.dart';
@@ -34,6 +35,7 @@ class MyKiranaApp extends StatelessWidget {
         // 2. INITIALIZE PROVIDERS (The Brains)
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => InventoryProvider()),
+        ChangeNotifierProvider(create: (_) => BillProvider()),
       ],
       child: MaterialApp(
         title: 'My Kirana',

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/theme.dart';
 import '../providers/auth_provider.dart';
+import '../providers/bill_provider.dart';
 import 'home_screen.dart';
 import 'auth_selection_screen.dart';
 
@@ -40,6 +41,10 @@ class _SplashScreenState extends State<SplashScreen>
     if (mounted) {
       // 2. Check Auto Login
       final auth = Provider.of<AuthProvider>(context, listen: false);
+      final billProvider = Provider.of<BillProvider>(context, listen: false);
+
+      // Initialize BillProvider (load persisted data)
+      await billProvider.initialize();
 
       // We check storage (await is okay here because tryAutoLogin returns a Future)
       bool isLoggedIn = await auth.tryAutoLogin();

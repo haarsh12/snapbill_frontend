@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -10,14 +12,98 @@ import '../models/shop_details.dart';
 class PrinterService {
   final BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
 
+  // Helper: Format quantity display with smart kg/gm conversion
+  String _formatQuantityForPrint(String qtyDisplay, String unit) {
+    // First apply short unit names
+    String result = _shortenQtyDisplay(qtyDisplay);
+    
+    // Smart kg/gm conversion
+    // Extract number from string like "0.4" or "1.2"
+    final numMatch = RegExp(r'(\d+\.?\d*)').firstMatch(qtyDisplay);
+    
+    if (numMatch != null && unit.toLowerCase() == 'kg') {
+      double value = double.tryParse(numMatch.group(1) ?? '0') ?? 0;
+      
+      // If < 1kg, convert to grams
+      if (value > 0 && value < 1) {
+        int grams = (value * 1000).round();
+        return '${grams}gm';
+      }
+      // If > 1kg but has decimal, convert fully to grams
+      else if (value > 1 && value != value.toInt()) {
+        int grams = (value * 1000).round();
+        return '${grams}gm';
+      }
+      // If whole kg, keep as is
+      else if (value == value.toInt()) {
+        return '${value.toInt()}kg';
+      }
+    }
+    
+    // Convert large grams to kg (e.g., 2000gm -> 2kg)
+    if (unit.toLowerCase() == 'gm' || unit.toLowerCase() == 'gram') {
+      final numMatch2 = RegExp(r'(\d+)').firstMatch(qtyDisplay);
+      if (numMatch2 != null) {
+        int gmValue = int.tryParse(numMatch2.group(1) ?? '0') ?? 0;
+        if (gmValue >= 1000 && gmValue % 1000 == 0) {
+          int kgValue = gmValue ~/ 1000;
+          return '${kgValue}kg';
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  // Helper: Get short unit names
+  String _getShortUnit(String unit) {
+    final unitMap = {
+      'dozen': 'doz',
+      'plate': 'plt',
+      'pieces': 'pic',
+      'pics': 'pic',
+      'litre': 'lit',
+      'liter': 'lit',
+    };
+    return unitMap[unit.toLowerCase()] ?? unit;
+  }
+
+  // Helper: Format number without .0 for whole numbers
+  String _formatNumber(double value) {
+    if (value == value.toInt()) {
+      return value.toInt().toString();
+    }
+    return value.toString();
+  }
+
+  // Helper: Shorten quantity display that already contains units
+  String _shortenQtyDisplay(String qtyDisplay) {
+    String result = qtyDisplay;
+    result = result.replaceAll('dozen', 'doz');
+    result = result.replaceAll('plate', 'plt');
+    result = result.replaceAll('pieces', 'pic');
+    result = result.replaceAll('pics', 'pic');
+    result = result.replaceAll('litre', 'lit');
+    result = result.replaceAll('liter', 'lit');
+    return result;
+  }
+
   Future<bool> isConnected() async {
     return (await bluetooth.isConnected) ?? false;
   }
 
   Future<String> printBill(
-      Map<String, dynamic> billData, ShopDetails shopDetails) async {
+      Map<String, dynamic> billData, ShopDetails shopDetails, String? qrCodePath) async {
     if (!await isConnected()) {
       return "Printer not connected";
+    }
+
+    // DEBUG: Log received data
+    if (kDebugMode) {
+      print("🖨️ PRINTER SERVICE: Received bill data");
+      print("🖨️ Bill ID: ${billData['id']}");
+      print("🖨️ Items count: ${billData['items']?.length ?? 0}");
+      print("🖨️ Items data: ${billData['items']}");
     }
 
     try {
@@ -66,6 +152,12 @@ class PrinterService {
                   child: pw.Text(
                       "Mob: ${shopDetails.phone1.isNotEmpty ? shopDetails.phone1 : '-'}",
                       style: const pw.TextStyle(fontSize: 12))),
+              // Second phone number (only if exists)
+              if (shopDetails.phone2.isNotEmpty)
+                pw.Center(
+                    child: pw.Text(
+                        "Mob: ${shopDetails.phone2}",
+                        style: const pw.TextStyle(fontSize: 12))),
               pw.Divider(thickness: 1),
 
               // --- 2. BILL META DATA ---
@@ -73,7 +165,7 @@ class PrinterService {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text(
-                        "Bill No: ${billData['id']?.toString().split('-').last ?? '001'}",
+                        "Bill No: ${billData['id']?.toString() ?? '001'}",
                         style: const pw.TextStyle(fontSize: 12)),
                     pw.Text("Date: ${billData['date'] ?? '-'}",
                         style: const pw.TextStyle(fontSize: 12)),
@@ -92,33 +184,33 @@ class PrinterService {
               // --- 3. TABLE HEADERS (4 Columns) ---
               pw.Row(children: [
                 pw.Expanded(
-                    flex: 4,
+                    flex: 3,
                     child: pw.Text("Item",
-                        style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold, fontSize: 12))),
+                        style: const pw.TextStyle(fontSize: 12))),
+                pw.Expanded(
+                    flex: 2,
+                    child: pw.Text("Qty",
+                        textAlign: pw.TextAlign.center,
+                        style: const pw.TextStyle(fontSize: 12))),
                 pw.Expanded(
                     flex: 2,
                     child: pw.Text("Rate",
                         textAlign: pw.TextAlign.right,
-                        style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold, fontSize: 12))),
-                pw.Expanded(
-                    flex: 1,
-                    child: pw.Text("Qty",
-                        textAlign: pw.TextAlign.center,
-                        style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold, fontSize: 12))),
+                        style: const pw.TextStyle(fontSize: 12))),
                 pw.Expanded(
                     flex: 2,
-                    child: pw.Text("Amt",
+                    child: pw.Text("Price",
                         textAlign: pw.TextAlign.right,
-                        style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold, fontSize: 12))),
+                        style: const pw.TextStyle(fontSize: 12))),
               ]),
               pw.Divider(),
 
               // --- 4. ITEMS LIST (Smart Name Logic) ---
               ...billData['items'].map<pw.Widget>((item) {
+                if (kDebugMode) {
+                  print("🖨️ Processing item for print: $item");
+                }
+                
                 // SMART NAME RESOLVER: Checks all possible keys so it never prints "Item"
                 String itemName = "Item";
                 if (item['name'] != null)
@@ -130,38 +222,64 @@ class PrinterService {
                     (item['names'] as List).isNotEmpty)
                   itemName = item['names'][0];
 
-                String qty = item['qty']?.toString() ?? "1";
-                String rate = item['rate']?.toString() ??
-                    item['price']?.toString() ??
-                    "0";
-                String total = item['total']?.toInt()?.toString() ?? "0";
+                if (kDebugMode) {
+                  print("🖨️ Item name resolved: $itemName");
+                }
+
+                // Extract quantity and unit
+                String qtyDisplay = item['qty']?.toString() ?? 
+                                   item['qty_display']?.toString() ?? "1";
+                String unit = item['unit']?.toString() ?? 'kg';
+                
+                if (kDebugMode) {
+                  print("🖨️ Qty: $qtyDisplay, Unit: $unit");
+                }
+                
+                // Short unit names for printing
+                String shortUnit = _getShortUnit(unit);
+                
+                // Format quantity with smart kg/gm conversion
+                String formattedQty = _formatQuantityForPrint(qtyDisplay, unit);
+
+                // Get rate and remove decimals if whole number
+                double rateValue = (item['rate'] ?? item['price'] ?? 0).toDouble();
+                String rateStr = _formatNumber(rateValue);
+                String rateWithUnit = "$rateStr/$shortUnit";
+
+                // Get total and remove decimals if whole number
+                double totalValue = (item['total'] ?? 0).toDouble();
+                String totalStr = "Rs${_formatNumber(totalValue)}";
+
+                if (kDebugMode) {
+                  print("🖨️ Printing: $itemName | $formattedQty | $rateWithUnit | $totalStr");
+                }
 
                 return pw.Padding(
                   padding: const pw.EdgeInsets.symmetric(vertical: 3),
                   child: pw.Row(children: [
                     // Item Name
                     pw.Expanded(
-                        flex: 4,
+                        flex: 3,
                         child: pw.Text(itemName,
-                            style: const pw.TextStyle(fontSize: 14))),
-                    // Rate
-                    pw.Expanded(
-                        flex: 2,
-                        child: pw.Text(rate,
-                            textAlign: pw.TextAlign.right,
-                            style: const pw.TextStyle(fontSize: 14))),
+                            style: const pw.TextStyle(fontSize: 13))),
                     // Qty
                     pw.Expanded(
-                        flex: 1,
-                        child: pw.Text(qty,
+                        flex: 2,
+                        child: pw.Text(formattedQty,
                             textAlign: pw.TextAlign.center,
-                            style: const pw.TextStyle(fontSize: 14))),
-                    // Amount
+                            style: const pw.TextStyle(fontSize: 13))),
+                    // Rate (without Rs)
                     pw.Expanded(
                         flex: 2,
-                        child: pw.Text(total,
+                        child: pw.Text(rateWithUnit,
                             textAlign: pw.TextAlign.right,
-                            style: const pw.TextStyle(fontSize: 14))),
+                            style: const pw.TextStyle(fontSize: 13))),
+                    // Price (with Rs)
+                    pw.Expanded(
+                        flex: 2,
+                        child: pw.Text(totalStr,
+                            textAlign: pw.TextAlign.right,
+                            style: const pw.TextStyle(fontSize: 13))),
                   ]),
                 );
               }).toList(),
@@ -174,7 +292,7 @@ class PrinterService {
                 children: [
                   pw.Text("Total Amount:  ",
                       style: const pw.TextStyle(fontSize: 14)),
-                  pw.Text("Rs ${billData['total']?.toInt() ?? 0}",
+                  pw.Text("Rs${_formatNumber((billData['total'] ?? 0).toDouble())}",
                       style: pw.TextStyle(
                           fontWeight: pw.FontWeight.bold, fontSize: 18)),
                 ],
@@ -184,9 +302,33 @@ class PrinterService {
               // --- 6. FOOTER ---
               pw.Center(
                   child: pw.Text("Thank You! Visit Again",
-                      style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold, fontSize: 14))),
+                      style: const pw.TextStyle(fontSize: 14))),
               pw.SizedBox(height: 5),
+              
+              // QR Code (if exists)
+              if (qrCodePath != null && qrCodePath.isNotEmpty)
+                pw.Column(children: [
+                  pw.SizedBox(height: 10),
+                  pw.Center(
+                    child: pw.Container(
+                      width: 150,
+                      height: 150,
+                      child: pw.Image(
+                        pw.MemoryImage(
+                          File(qrCodePath).readAsBytesSync(),
+                        ),
+                        fit: pw.BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(height: 5),
+                  pw.Center(
+                    child: pw.Text("Scan to Pay",
+                        style: const pw.TextStyle(fontSize: 10)),
+                  ),
+                  pw.SizedBox(height: 10),
+                ]),
+              
               pw.Center(
                   child: pw.Text("Powered by SnapBill",
                       style: const pw.TextStyle(

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../core/theme.dart';
 import '../models/item.dart';
 import '../models/shop_details.dart';
+import '../providers/bill_provider.dart';
 
 // Helper model for the bill calculation
 class BillItem {
@@ -66,7 +68,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
         BillItem oldBillItem = _currentBill[billIndex];
         _currentBill[billIndex] = BillItem(
           name: oldBillItem.name,
-          qtyDisplay: "$newCount ${item.unit}",
+          qtyDisplay: "$newCount${_getShortUnit(item.unit)}",
           rate: item.price,
           total: item.price * newCount,
           unit: item.unit,
@@ -75,7 +77,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
         // Add new item
         _currentBill.add(BillItem(
           name: item.names[0],
-          qtyDisplay: "1 ${item.unit}",
+          qtyDisplay: "1${_getShortUnit(item.unit)}",
           rate: item.price,
           total: item.price,
           unit: item.unit,
@@ -104,7 +106,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
         } else {
           _currentBill[billIndex] = BillItem(
             name: billItem.name,
-            qtyDisplay: "$newCount ${item.unit}",
+            qtyDisplay: "$newCount${_getShortUnit(item.unit)}",
             rate: item.price,
             total: item.price * newCount,
             unit: item.unit,
@@ -121,7 +123,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
     });
   }
 
-  void _finalizeBill() {
+  void _finalizeBill() async {
     // 1. Check Printer Connection
     if (!widget.isPrinterConnected) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -135,9 +137,12 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
 
     if (_currentBill.isEmpty) return;
 
+    // Get next bill number from BillProvider
+    final billProvider = Provider.of<BillProvider>(context, listen: false);
+    final billNumber = await billProvider.getNextBillNumber();
+
     final billData = {
-      'id':
-          'INV-Q-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
+      'id': billNumber,
       'date': DateFormat('dd-MM-yyyy').format(DateTime.now()),
       'time': DateFormat('hh:mm:ss a').format(DateTime.now()),
       'total': _currentBill.fold<double>(0, (sum, item) => sum + item.total),
@@ -148,7 +153,9 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
           .map((e) => {
                 'en': e.name,
                 'hi': e.name,
-                'qty': e.qtyDisplay,
+                'name': e.name,
+                'qty': e.qtyDisplay.replaceAll(RegExp(r'[a-zA-Z]'), '').trim(),
+                'qty_display': e.qtyDisplay,
                 'rate': e.rate,
                 'total': e.total,
                 'unit': e.unit,
@@ -303,6 +310,27 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
     );
   }
 
+  // Helper: Get short unit names
+  String _getShortUnit(String unit) {
+    final unitMap = {
+      'dozen': 'doz',
+      'plate': 'plt',
+      'pieces': 'pic',
+      'pics': 'pic',
+      'litre': 'lit',
+      'liter': 'lit',
+    };
+    return unitMap[unit.toLowerCase()] ?? unit;
+  }
+
+  // Helper: Format number without .0 for whole numbers
+  String _formatNumber(double value) {
+    if (value == value.toInt()) {
+      return value.toInt().toString();
+    }
+    return value.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -405,7 +433,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
                                   ),
                                   Expanded(
                                     flex: 2,
-                                    child: Text("₹${item.total.toInt()}",
+                                    child: Text("₹${_formatNumber(item.total)}",
                                         textAlign: TextAlign.right,
                                         style: const TextStyle(
                                             fontWeight: FontWeight.bold,
@@ -452,7 +480,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
                                     color: Colors.grey,
                                     fontWeight: FontWeight.bold)),
                             Text(
-                              "₹${_currentBill.fold<double>(0, (sum, item) => sum + item.total).toInt()}",
+                              "₹${_formatNumber(_currentBill.fold<double>(0, (sum, item) => sum + item.total))}",
                               style: const TextStyle(
                                   fontSize: 26,
                                   fontWeight: FontWeight.bold,
@@ -524,7 +552,7 @@ class _FrequentBillingScreenState extends State<FrequentBillingScreen> {
                                         fontWeight: FontWeight.bold,
                                         color: AppColors.textBlack)),
                                 const SizedBox(height: 5),
-                                Text("₹${item.price.toInt()} / ${item.unit}",
+                                Text("₹${_formatNumber(item.price)} / ${_getShortUnit(item.unit)}",
                                     style: const TextStyle(
                                         fontSize: 14,
                                         color: AppColors.textGrey)),

@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
 import '../models/shop_details.dart';
 import '../services/api_client.dart';
+import '../providers/bill_provider.dart';
 
 class VoiceAssistantScreen extends StatefulWidget {
   final ShopDetails shopDetails;
@@ -35,7 +37,6 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
   bool _isListening = false;
   String _currentSpeechChunk = "";
   String _aiResponseText = "Tap to Speak";
-  final List<Map<String, dynamic>> _currentBill = [];
   Timer? _silenceTimer;
   final ApiClient _apiClient = ApiClient();
 
@@ -146,11 +147,31 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
       // 3. Update Bill (Only AFTER voice finishes)
       if (data['type'] == 'BILL') {
         List<dynamic> newItems = data['items'] ?? [];
-        setState(() {
-          for (var i in newItems) {
-            _currentBill.add(i);
-          }
-        });
+        // Use BillProvider instead of local state
+        final billProvider = Provider.of<BillProvider>(context, listen: false);
+        
+        // DEBUG: Log what API returns
+        debugPrint("🎤 VOICE API returned ${newItems.length} items");
+        
+        for (var item in newItems) {
+          debugPrint("🎤 RAW API ITEM: $item");
+          
+          // Normalize the item structure to match what printer expects
+          final normalizedItem = {
+            'name': item['name'] ?? item['en'] ?? item['item_name'] ?? 'Unknown',
+            'en': item['en'] ?? item['name'] ?? item['item_name'] ?? 'Unknown',
+            'hi': item['hi'] ?? item['name'] ?? item['item_name'] ?? 'Unknown',
+            'qty': item['qty']?.toString() ?? item['quantity']?.toString() ?? '1',
+            'qty_display': item['qty_display'] ?? '${item['qty'] ?? item['quantity'] ?? '1'}${item['unit'] ?? 'kg'}',
+            'rate': (item['rate'] ?? item['price'] ?? item['unit_price'] ?? 0).toDouble(),
+            'total': (item['total'] ?? item['line_total'] ?? 0).toDouble(),
+            'unit': item['unit'] ?? 'kg',
+          };
+          
+          debugPrint("🎤 NORMALIZED ITEM: $normalizedItem");
+          
+          billProvider.addBillItem(normalizedItem);
+        }
       }
 
       // 4. Resume Listening (Optional - makes it conversational)
@@ -162,8 +183,21 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
     }
   }
 
-  void _finalizeBill() {
-    if (_currentBill.isEmpty) return;
+  void _finalizeBill() async {
+    final billProvider = Provider.of<BillProvider>(context, listen: false);
+    
+    // DEBUG: Check if bill has items
+    if (!billProvider.hasBillItems) {
+      debugPrint("❌ VOICE BILL: Bill is empty - cannot print");
+      return;
+    }
+
+    debugPrint("✅ VOICE BILL: Has ${billProvider.currentBillItems.length} items");
+    
+    // DEBUG: Print each item structure
+    for (var item in billProvider.currentBillItems) {
+      debugPrint("VOICE ITEM: $item");
+    }
 
     if (!widget.isPrinterConnected) {
       _flutterTts.speak("Printer connected nahi hai"); // Speak warning
@@ -181,31 +215,100 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
     // Speak confirmation
     _flutterTts.speak("Bill print ho raha hai");
 
+    // Get next bill number
+    final billNumber = await billProvider.getNextBillNumber();
+
+    // CRITICAL: Create a COPY of items before clearing
+    final itemsCopy = List<Map<String, dynamic>>.from(billProvider.currentBillItems);
+
     final billData = {
-      'id':
-          'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
+      'id': billNumber,
       'date':
           "${DateTime.now().day}-${DateTime.now().month}-${DateTime.now().year}",
       'time': "${DateTime.now().hour}:${DateTime.now().minute}",
-      'total': _currentBill.fold<double>(
-          0, (sum, item) => sum + (item['total'] as num).toDouble()),
+      'total': billProvider.billTotal,
       'shopName': widget.shopDetails.shopName,
       'shopAddress': widget.shopDetails.address,
       'shopPhone': widget.shopDetails.phone1,
-      'items': _currentBill,
+      'items': itemsCopy,  // Use the copy, not the reference
     };
 
+    debugPrint("✅ VOICE BILL DATA: $billData");
+    final itemsList = billData['items'] as List;
+    debugPrint("✅ VOICE BILL ITEMS COUNT: ${itemsList.length}");
+
+    // Pass to home screen for printing
     widget.onBillFinalized(billData);
 
+    // Clear bill AFTER passing data (but this shouldn't affect the copy)
+    billProvider.clearBill();
     setState(() {
-      _currentBill.clear();
       _aiResponseText = "Bill Printed!";
     });
   }
 
+  // Helper: Format number without .0 for whole numbers
+  String _formatNumber(double value) {
+    if (value == value.toInt()) {
+      return value.toInt().toString();
+    }
+    return value.toString();
+  }
+
+  // Helper: Format quantity display with smart kg/gm conversion
+  String _formatQuantityDisplay(String qtyDisplay) {
+    // First apply short unit names
+    String result = qtyDisplay;
+    result = result.replaceAll('dozen', 'doz');
+    result = result.replaceAll('plate', 'plt');
+    result = result.replaceAll('pieces', 'pic');
+    result = result.replaceAll('pics', 'pic');
+    result = result.replaceAll('litre', 'lit');
+    result = result.replaceAll('liter', 'lit');
+    
+    // Smart kg/gm conversion
+    // Extract number and unit from string like "0.4kg" or "1.2 kg"
+    final RegExp kgPattern = RegExp(r'(\d+\.?\d*)\s*kg', caseSensitive: false);
+    final match = kgPattern.firstMatch(result);
+    
+    if (match != null) {
+      double kgValue = double.tryParse(match.group(1) ?? '0') ?? 0;
+      
+      // If < 1kg, convert to grams
+      if (kgValue > 0 && kgValue < 1) {
+        int grams = (kgValue * 1000).round();
+        result = result.replaceFirst(kgPattern, '${grams}gm');
+      }
+      // If > 1kg but has decimal, convert fully to grams
+      else if (kgValue > 1 && kgValue != kgValue.toInt()) {
+        int grams = (kgValue * 1000).round();
+        result = result.replaceFirst(kgPattern, '${grams}gm');
+      }
+      // If whole kg, keep as is
+    }
+    
+    // Convert large grams to kg (e.g., 2000gm -> 2kg)
+    final RegExp gmPattern = RegExp(r'(\d+)\s*gm', caseSensitive: false);
+    final gmMatch = gmPattern.firstMatch(result);
+    
+    if (gmMatch != null) {
+      int gmValue = int.tryParse(gmMatch.group(1) ?? '0') ?? 0;
+      if (gmValue >= 1000 && gmValue % 1000 == 0) {
+        int kgValue = gmValue ~/ 1000;
+        result = result.replaceFirst(gmPattern, '${kgValue}kg');
+      }
+    }
+    
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Consumer<BillProvider>(
+      builder: (context, billProvider, child) {
+        final currentBill = billProvider.currentBillItems;
+        
+        return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
@@ -317,8 +420,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16)),
                               TextButton.icon(
-                                  onPressed: () =>
-                                      setState(() => _currentBill.clear()),
+                                  onPressed: currentBill.isEmpty ? null : () => billProvider.clearBill(),
                                   icon: const Icon(Icons.cancel_outlined,
                                       size: 18, color: Colors.red),
                                   label: const Text("Cancel Bill",
@@ -368,22 +470,21 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
 
                     // List Items
                     Expanded(
-                        child: _currentBill.isEmpty
+                        child: currentBill.isEmpty
                             ? const Center(
                                 child: Text("Say 'Chawal 1kg' to add items",
                                     style: TextStyle(color: Colors.grey)))
                             : ListView.separated(
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 20, vertical: 10),
-                                itemCount: _currentBill.length,
+                                itemCount: currentBill.length,
                                 separatorBuilder: (_, __) =>
                                     const Divider(height: 16),
                                 itemBuilder: (context, index) {
-                                  final item = _currentBill[index];
+                                  final item = currentBill[index];
                                   return Row(children: [
                                     GestureDetector(
-                                        onTap: () => setState(
-                                            () => _currentBill.removeAt(index)),
+                                        onTap: () => billProvider.removeBillItem(index),
                                         child: Container(
                                             margin:
                                                 const EdgeInsets.only(right: 8),
@@ -401,19 +502,19 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
                                                 fontSize: 14))),
                                     Expanded(
                                         flex: 1,
-                                        child: Text(item['qty_display'],
+                                        child: Text(_formatQuantityDisplay(item['qty_display']),
                                             textAlign: TextAlign.center,
                                             style:
                                                 const TextStyle(fontSize: 13))),
                                     Expanded(
                                         flex: 2,
-                                        child: Text("₹${item['rate']}",
+                                        child: Text("₹${_formatNumber((item['rate'] as num).toDouble())}",
                                             textAlign: TextAlign.right,
                                             style:
                                                 const TextStyle(fontSize: 12))),
                                     Expanded(
                                         flex: 2,
-                                        child: Text("₹${item['total']}",
+                                        child: Text("₹${_formatNumber((item['total'] as num).toDouble())}",
                                             textAlign: TextAlign.right,
                                             style: const TextStyle(
                                                 fontWeight: FontWeight.bold,
@@ -451,7 +552,7 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
                                             color: Colors.grey,
                                             fontWeight: FontWeight.w600)),
                                     Text(
-                                        "₹${_currentBill.fold<double>(0, (sum, item) => sum + (item['total'] as num).toDouble()).toInt()}",
+                                        "₹${_formatNumber(billProvider.billTotal)}",
                                         style: const TextStyle(
                                             fontSize: 26,
                                             fontWeight: FontWeight.bold,
@@ -465,6 +566,8 @@ class _VoiceAssistantScreenState extends State<VoiceAssistantScreen>
           ],
         ),
       ),
+    );
+      },
     );
   }
 }

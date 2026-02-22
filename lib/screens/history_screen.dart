@@ -13,6 +13,14 @@ class HistoryScreen extends StatelessWidget {
     required this.pastBills,
   });
 
+  // Helper: Format number without .0 for whole numbers
+  String _formatNumber(double value) {
+    if (value == value.toInt()) {
+      return value.toInt().toString();
+    }
+    return value.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (pastBills.isEmpty) {
@@ -128,7 +136,7 @@ class HistoryScreen extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      "₹${(bill['total'] as num).toInt()}",
+                      "₹${_formatNumber((bill['total'] as num).toDouble())}",
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,

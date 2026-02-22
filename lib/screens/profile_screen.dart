@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../core/theme.dart';
 import '../models/shop_details.dart';
 import '../providers/auth_provider.dart';
+import '../providers/bill_provider.dart';
 import '../widgets/bill_receipt_widget.dart';
 import 'auth_selection_screen.dart';
 
@@ -61,6 +62,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _addressCtrl = TextEditingController(text: details.address);
     _phone1Ctrl = TextEditingController(text: details.phone1);
     _phone2Ctrl = TextEditingController(text: details.phone2);
+    
+    // Load QR code from BillProvider
+    final billProvider = Provider.of<BillProvider>(context, listen: false);
+    _uploadedQrPath = billProvider.qrCodePath;
+    _isQrEnabled = _uploadedQrPath != null && _uploadedQrPath!.isNotEmpty;
   }
 
   // --- LOGIC: UPDATE DETAILS & SYNC ---
@@ -158,11 +164,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
       if (image != null) {
+        // Save to BillProvider for persistence
+        final billProvider = Provider.of<BillProvider>(context, listen: false);
+        await billProvider.saveQrCode(image.path);
+        
         setState(() => _uploadedQrPath = image.path);
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("QR Code Uploaded!")));
+            .showSnackBar(const SnackBar(content: Text("QR Code Uploaded & Saved!")));
       }
-    } catch (e) {/* Error */}
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Error uploading QR: $e")));
+    }
   }
 
   void _confirmLogout() {

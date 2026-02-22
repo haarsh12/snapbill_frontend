@@ -39,6 +39,27 @@ class BillReceiptWidget extends StatelessWidget {
     return text;
   }
 
+  // Helper: Get short unit names
+  String _getShortUnit(String unit) {
+    final unitMap = {
+      'dozen': 'doz',
+      'plate': 'plt',
+      'pieces': 'pic',
+      'pics': 'pic',
+      'litre': 'lit',
+      'liter': 'lit',
+    };
+    return unitMap[unit.toLowerCase()] ?? unit;
+  }
+
+  // Helper: Format number without .0 for whole numbers
+  String _formatNumber(double value) {
+    if (value == value.toInt()) {
+      return value.toInt().toString();
+    }
+    return value.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     String rawShopName = snapshotShopName ?? shopDetails.shopName;
@@ -68,6 +89,11 @@ class BillReceiptWidget extends StatelessWidget {
         Text("Ph: $displayPhone1",
             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             textAlign: TextAlign.center),
+        // Second phone number (only if exists)
+        if (shopDetails.phone2.isNotEmpty)
+          Text("Ph: ${shopDetails.phone2}",
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              textAlign: TextAlign.center),
         const Divider(thickness: 1.5, height: 24),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -113,7 +139,9 @@ class BillReceiptWidget extends StatelessWidget {
           String name = isHindi
               ? (item['hi'] ?? item['en'])
               : (item['en'] ?? item['name']);
-          String unit = item['unit'] ?? 'kg';
+          String unit = _getShortUnit(item['unit'] ?? 'kg');
+          double rateValue = (item['rate'] as num).toDouble();
+          double totalValue = (item['total'] as num).toDouble();
           return Padding(
               padding: const EdgeInsets.symmetric(vertical: 4.0),
               child: Row(children: [
@@ -131,12 +159,12 @@ class BillReceiptWidget extends StatelessWidget {
                         style: const TextStyle(fontSize: 13))),
                 Expanded(
                     flex: 2,
-                    child: Text("₹${item['rate'].toInt()}/$unit",
+                    child: Text("₹${_formatNumber(rateValue)}/$unit",
                         textAlign: TextAlign.right,
                         style: const TextStyle(fontSize: 12))),
                 Expanded(
                     flex: 2,
-                    child: Text("₹${item['total'].toInt()}",
+                    child: Text("₹${_formatNumber(totalValue)}",
                         textAlign: TextAlign.right,
                         style: const TextStyle(
                             fontSize: 13, fontWeight: FontWeight.bold))),
@@ -147,7 +175,7 @@ class BillReceiptWidget extends StatelessWidget {
           Text(isHindi ? "कुल योग:" : "TOTAL:",
               style:
                   const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          Text("₹${total.toInt()}",
+          Text("₹${_formatNumber(total)}",
               style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 24,
